@@ -10,3 +10,7 @@ _md.json
 .env
 research/
 tests/smoke_live.jsonl
+tests/smoke_live.jsonl
+tests/validate_log.jsonl
+tests/_strat_test.log.jsonl
+tests/_strat_test.log.jsonl*
