@@ -14,3 +14,7 @@ tests/smoke_live.jsonl
 tests/validate_log.jsonl
 tests/_strat_test.log.jsonl
 tests/_strat_test.log.jsonl*
+tests/_d.jsonl
+tests/_seed.jsonl
+tests/_roundtrip.jsonl
+tests/_exit.jsonl
