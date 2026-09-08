@@ -63,6 +63,11 @@ powershell -ExecutionPolicy Bypass -File terminal\terminal.ps1   # live dashboar
 
 **Buy-the-dip on calm coins, sell on the recovery.**
 
+**How it works.** A coin normally moves inside an invisible band (its recent high and low). This strategy waits for the price to drift down near the bottom of that band, then buys — expecting the price to bounce back up. Once it rises back toward the top of the band, it sells and locks in the small gain. It only plays coins that are moving sideways (calm); it stays away from coins trending hard up or down, where "buying the dip" can just keep falling.
+
+Why it can win / lose: it makes money when the coin keeps bouncing in its band. It can lose if the coin breaks out and keeps falling instead of bouncing — so it only ever risks a small amount per coin and stops out if the drop is too big.
+
+
 Prompt:
 
 ```text
@@ -79,6 +84,14 @@ Act on every live signal. If there is none right now, place nothing and say "no 
 ### 2) Regime Rotation  —  SPOT
 
 **Reads market state - trends up, buys ranges, cash in crashes.**
+
+**How it works.** Markets do different things at different times, and one fixed rule rarely works in all of them. This strategy first figures out what a coin is currently doing — trending up, drifting sideways, or crashing — and then only trades the pattern that fits that state:
+- In a clear uptrend, it buys when the coin pushes to a new high (momentum).
+- When a coin is drifting sideways, it buys the dips and sells the bounces (range).
+- When a coin is crashing or jumping wildly on news, it does nothing and holds cash.
+
+Because it changes its approach with the market instead of forcing one style, it aims to hold up across up, down, and sideways periods. It holds more cash when conditions are dangerous.
+
 
 Prompt:
 
@@ -97,6 +110,11 @@ Act on every live signal. If there is none right now, place nothing and say "no 
 
 **Only buys a breakout when real volume confirms it.**
 
+**How it works.** A price move means little if almost no one is trading; it means a lot when a big burst of volume happens. This strategy only acts when a coin breaks out of its quiet range at the same moment trading volume jumps sharply — a sign that a real move (not a fakeout) is starting. When that happens it buys (or shorts) the breakout and rides the move.
+
+Why it filters so hard: most "breakouts" fail because they happen on thin volume. Requiring the volume burst at the same time removes most false signals, so it trades rarely but only on moves with real participation behind them.
+
+
 Prompt:
 
 ```text
@@ -113,6 +131,11 @@ Act on every live signal. If there is none right now, place nothing and say "no 
 ### 4) Funding Rate  —  FUTURES
 
 **Bets against the crowded side to collect funding.**
+
+**How it works.** In perpetual futures, longs and shorts pay each other a small fee every 8 hours. When one side is hugely crowded, that side pays the other. This strategy bets against the crowd: when almost everyone is short, it goes long (and collects from the shorts while price tends to recover); when almost everyone is long, it goes short. Over time it aims to collect those fees while the crowded position unwinds.
+
+Why it can win / lose: extreme one-sided positioning often reverses, which is what it profits from. It can lose if the crowd is right and the trend keeps going, so it caps each position small and stops out if price moves against it.
+
 
 Prompt:
 
