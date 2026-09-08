@@ -1,16 +1,19 @@
 # Binance Agent OS — Multi-Strategy Trading Agent
 
-Four strategies on Binance spot + USDT-M futures, run through the **Binance
-Agent OS MCP** (`agent.binance.com/mcp/agentic`, OAuth — no API keys). Public
-repo: https://github.com/ItzJulkar/binance-os-agent-strategies
+Four strategies on **Binance spot and USDT-M futures**, run through the Binance
+Agent OS MCP (`agent.binance.com/mcp/agentic`, OAuth — no API keys).
 
-Connect any AI (GPT / Claude / Grok / Hermes) to the Binance MCP, then paste the
-**spot** or **futures** prompt for a strategy. Every prompt is short and
-self-contained, all orders are MARKET, and it **never trades unless the signal
-is actually present** (otherwise it reports 'no signal'). The matching logic is
-also in `strategies/<name>/strategy.py`.
+Public repo: https://github.com/ItzJulkar/binance-os-agent-strategies
 
-Local tools (run here, no AI needed):
+**The full logic and rules live in each `strategies/<name>/strategy.py`.** Each
+strategy has one short prompt below that just points the AI at that file and
+tells it to trade. Connect any AI (GPT / Claude / Grok / Hermes) to the Binance
+MCP, paste the prompt, and it executes the strategy via MARKET orders. If there
+is no live signal it places nothing.
+
+Spot and futures are both covered across the four strategies (see Venue column).
+
+## Local tools (run on this PC, no AI needed)
 ```
 pip install -r requirements.txt pytest
 python -m pytest tests/ -q                 # unit tests
@@ -19,155 +22,71 @@ powershell -ExecutionPolicy Bypass -File terminal\terminal.ps1   # live dashboar
 ```
 
 ---
+### 1) Grid  —  SPOT
 
-### 1) Grid  —  Buy the dip in a calm coin's range, sell on the recovery.
+**Buy-the-dip on calm coins, sell on the recovery.**
 
-Prompts: futures.md / spot.md. Each is self-contained.
-
-**FUTURES:**
-
-```text
-# GRID — FUTURES
-
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/grid/strategy.py)
-
-Trade USDT-M futures MARKET. Position = 5% of wallet at 3x leverage.
-Scan the top-20 futures coins. For each you don't already hold:
-- only calm coins (14-bar swing ~1.5-4.5% of price)
-- if the coin is now in the LOWER half of its last-20-bar high/low range -> MARKET LONG 5% x3.
-- if you already hold it and it reached the UPPER half or is up ~4% -> MARKET close.
-
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line.
-```
-
-**SPOT:**
+Prompt:
 
 ```text
-# GRID — SPOT
+# GRID — run
 
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/grid/strategy.py)
+Run the grid strategy. Read and follow `strategies/grid/strategy.py` in this repo — it has the full logic and rules.
 
-Trade spot MARKET. Spot order = $6.
-Scan the top-20 USDT coins. For each you don't already hold:
-- only calm coins (14-bar swing ~1.5-4.5% of price)
-- if the coin is now in the LOWER half of its last-20-bar high/low range -> MARKET BUY $6.
-- if you already hold it and it reached the UPPER half or is up ~4% -> MARKET SELL to close.
+This strategy trades SPOT. Use the Binance Agent OS MCP to fetch data and place the code's MARKET orders.
 
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line.
+Act on every live signal. If there is none right now, place nothing and say "no signal".
 ```
-
 
 ---
+### 2) Regime Rotation  —  SPOT
 
-### 2) Regime rotation  —  Reads the market state — follows trends, buys ranges, sits in cash on crashes.
+**Reads market state - trends up, buys ranges, cash in crashes.**
 
-Prompts: futures.md / spot.md. Each is self-contained.
-
-**FUTURES:**
-
-```text
-# REGIME ROTATION — FUTURES
-
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/regime_rotation/strategy.py)
-
-Trade USDT-M futures MARKET. Position = 5% of wallet at 3x.
-Scan top-20 futures coins. Classify each (ADX/RSI/volume/trend):
-- trending up + fresh break above its recent high -> MARKET LONG 5% x3.
-- ranging + oversold at the low of its band -> MARKET LONG 5% x3 (dip).
-- crashing or very jumpy -> DO NOTHING (cash).
-Only act after the same state 2 checks in a row. Close losers / take profit.
-
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line.
-```
-
-**SPOT:**
+Prompt:
 
 ```text
-# REGIME ROTATION — SPOT
+# REGIME ROTATION — run
 
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/regime_rotation/strategy.py)
+Run the regime-rotation strategy. Read and follow `strategies/regime_rotation/strategy.py` in this repo — it has the full logic and rules.
 
-Trade spot MARKET. Spot order = $6.
-Scan top-20 USDT coins. Classify each (ADX/RSI/volume/trend):
-- trending up + fresh break above its recent high -> MARKET BUY $6.
-- ranging + oversold (RSI<35) at the low of its band -> MARKET BUY $6 (dip).
-- crashing or very jumpy -> DO NOTHING (cash).
-Only act after the same state 2 checks in a row. Close losers / take profit ~3-6%.
+This strategy trades SPOT. Use the Binance Agent OS MCP to fetch data and place the code's MARKET orders.
 
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line.
+Act on every live signal. If there is none right now, place nothing and say "no signal".
 ```
-
 
 ---
+### 3) Volume Spike  —  FUTURES
 
-### 3) Volume-spike breakout  —  Only buys a breakout when a big volume jump confirms it's real.
+**Only buys a breakout when real volume confirms it.**
 
-Prompts: futures.md / spot.md. Each is self-contained.
-
-**FUTURES:**
-
-```text
-# VOLUME-SPIKE BREAKOUT — FUTURES
-
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/volume_spike/strategy.py)
-
-Trade USDT-M futures MARKET. Position = 5% of wallet at 3x.
-Scan top-20 futures coins on 1h candles. Trade only when ALL 3 at once:
-1. this hour's volume >= 2x the last-20-hour average, AND
-2. price closed beyond the prior-20-hour high (long) or low (short), AND
-3. the coin was quiet before (ATR below its 20-bar average).
-Then MARKET LONG/SHORT 5% x3. Longs skipped if funding very positive.
-
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line or 'no signal'.
-```
-
-**SPOT:**
+Prompt:
 
 ```text
-# VOLUME-SPIKE BREAKOUT — SPOT
+# VOLUME-SPIKE BREAKOUT — run
 
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/volume_spike/strategy.py)
+Run the volume-spike strategy. Read and follow `strategies/volume_spike/strategy.py` in this repo — it has the full logic and rules.
 
-Trade spot MARKET. Spot order = $6.
-Scan top-20 USDT coins on 1h candles. Buy only when ALL 3 at once:
-1. this hour's volume >= 2x the last-20-hour average, AND
-2. price closed above the prior-20-hour high (real breakout), AND
-3. the coin was quiet before (ATR below its 20-bar average).
-Then MARKET BUY $6. If a coin fails any of the 3, skip it.
+This strategy trades USDT-M FUTURES. Use the Binance Agent OS MCP to fetch data and place the code's MARKET orders.
 
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line or 'no signal'.
+Act on every live signal. If there is none right now, place nothing and say "no signal".
 ```
-
 
 ---
+### 4) Funding Rate  —  FUTURES
 
-### 4) Funding rate  —  Bets against the crowded futures side to collect the 8h funding fee.
+**Bets against the crowded side to collect funding.**
 
-Prompts: futures.md. Each is self-contained.
-
-**FUTURES:**
+Prompt:
 
 ```text
-# FUNDING RATE — FUTURES
+# FUNDING RATE — run
 
-Repo: https://github.com/ItzJulkar/binance-os-agent-strategies (strategies/funding_rate/strategy.py)
+Run the funding-rate strategy. Read and follow `strategies/funding_rate/strategy.py` in this repo — it has the full logic and rules.
 
-USDT-M futures MARKET. Position = 5% of wallet at 3x.
-Scan top-20 futures coins' 8h funding rate:
-- funding <= -0.05%/8h (crowd very short) for 3 checks -> MARKET LONG 5% x3.
-- funding >= +0.05%/8h (crowd very long) for 3 checks -> MARKET SHORT 5% x3.
-- otherwise DO NOTHING.
-Stop ~3%. Close when funding returns near normal, stop hits, or after ~3 days.
+This strategy trades USDT-M FUTURES. Use the Binance Agent OS MCP to fetch data and place the code's MARKET orders.
 
-CRITICAL: only trade if the signal is actually present in the live market right now. If the condition is NOT met, place NO order and say 'no signal'. Never invent a trade to 'do something'.
-Report one line or 'no signal'.
+Act on every live signal. If there is none right now, place nothing and say "no signal".
 ```
-
 
 ---
