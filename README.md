@@ -150,3 +150,31 @@ Act on every live signal. If there is none right now, place nothing and say "no 
 ```
 
 ---
+
+---
+
+## Disclaimer
+
+**This software is provided for educational and experimental purposes only.**
+It is **not financial advice**, and nothing here is a recommendation to buy,
+sell, or hold any asset.
+
+Trading cryptocurrency, especially with leverage, carries a **high risk of
+loss**. Automated / AI-driven trading can lose money quickly — including more
+than the amount you intended to risk, and futures positions can be liquidated.
+Past performance is not an indicator of future results.
+
+By using this project you acknowledge that:
+- You are solely responsible for your own trades and any losses they cause.
+- The strategies are experimental and may contain bugs; there is **no
+  guarantee** they are profitable or that they behave as described.
+- You should only connect an account you are prepared to lose money on, and you
+  should start with the smallest amount possible (ideally on a test/paper
+  setup before any real funds).
+- You must comply with the laws and regulations of your jurisdiction.
+  Automated trading may be restricted or prohibited where you live. Check
+  before using it.
+
+**No warranty.** This software is provided "as is", without warranty of any
+kind, express or implied. The authors are not liable for any loss, damage, or
+expense arising from its use.
