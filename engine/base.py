@@ -84,6 +84,19 @@ class Strategy(ABC):
         return Signal(strategy=strategy or self.name, venue="futures", symbol=symbol,
                       side=side, entry_price=p, quantity=qty, **extra)
 
+    def _futures_balance(self) -> Decimal:
+        """Real futures wallet balance if a live client is wired, else paper."""
+        if self.client is not None:
+            try:
+                acct = self.client.futures_account()
+                # accountInformationV3: available balance in 'availableBalance'
+                for key in ("availableBalance", "available_balance", "totalWalletBalance"):
+                    if key in acct:
+                        return Decimal(str(acct[key]))
+            except Exception:
+                pass
+        return Decimal(self.config["sizing"]["paper_balance"])
+
     def _spot_filter(self, symbol: str) -> SymbolFilter | None:
         flts = getattr(self, "_universe", None) and self._universe.get("spot_filters", {})
         return flts.get(symbol) if flts else None

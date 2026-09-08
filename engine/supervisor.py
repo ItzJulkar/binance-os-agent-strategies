@@ -32,9 +32,10 @@ class Supervisor:
 
     # ---- universe ----
     def build_universe(self) -> dict[str, Any]:
-        allowlist = self.config.get("allowlist") or []
-        top_n = self.config.get("top_n_pairs", 20)
-        quote = self.config.get("quote_asset", "USDT")
+        markets_cfg = self.config.get("markets", {})
+        allowlist = markets_cfg.get("allowlist") or []
+        top_n = markets_cfg.get("top_n_pairs", 20)
+        quote = markets_cfg.get("quote_asset", "USDT")
         symbols = allowlist if allowlist else self.market.spot_top_pairs()
         futures_symbols = allowlist if allowlist else self.market.futures_top_pairs()
         books = self.market.spot_tickers(symbols)
@@ -80,6 +81,12 @@ class Supervisor:
         if sig.venue == "spot":
             resp = self.client.spot_place_market(sig.symbol, sig.side, str(sig.quantity))
         else:
+            # ensure the leverage the sizing assumed is actually set before the order
+            try:
+                lev = int(self.config["sizing"]["futures_leverage"])
+                self.client.futures_set_leverage(sig.symbol, lev)
+            except Exception:
+                pass
             resp = self.client.futures_place_market(sig.symbol, sig.side, str(sig.quantity),
                                                     reduce_only=sig.reduce_only)
         self.log.event("ORDER_CONFIRMED", venue=sig.venue, strategy=sig.strategy,

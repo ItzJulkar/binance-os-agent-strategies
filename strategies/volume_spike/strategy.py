@@ -87,7 +87,7 @@ class VolumeSpikeStrategy(Strategy):
         price = book.ask if side == "BUY" else book.bid
         if price is None or price <= 0:
             return None
-        balance = Decimal(self.config["sizing"]["paper_balance"])
+        balance = self._futures_balance()
         return self.futures_directional(sym, price, side, balance,
                                         stop_loss_pct=Decimal("0.03"),
                                         take_profit_pct=Decimal("0.06"))
