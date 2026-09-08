@@ -13,6 +13,43 @@ is no live signal it places nothing.
 
 Spot and futures are both covered across the four strategies (see Venue column).
 
+## How to connect your own AI to Binance Agent OS
+
+The strategies run through **one Binance MCP endpoint**:
+`https://agent.binance.com/mcp/agentic`. You connect any MCP-capable AI
+(Claude, ChatGPT, Grok, Hermes, Codex, Cursor, VS Code) to that URL with an
+OAuth login — no API keys.
+
+Steps:
+
+1. **Create an Agentic sub-account** (or use the one Agent OS makes). Inside
+   Binance → *Agent OS*, authorize an agent and fund its sub-account. The agent
+   can only trade inside that isolated sub-account — it **cannot withdraw**.
+   Start with a small balance you are willing to trade.
+2. **Grant scopes.** Approve what the agent may do: market data, view balances,
+   trade spot / USDT-M futures, move funds within the account. Only approve
+   what a strategy needs.
+3. **Add the MCP server in your AI client** with this URL:
+   `https://agent.binance.com/mcp/agentic`
+   - **Claude / Claude Code**: Settings → Connectors / *Claude MCP* → Add
+     remote server → paste the URL → it opens the Binance OAuth window → Approve.
+   - **ChatGPT**: Settings → Connectors → add a remote/Streamable-HTTP MCP →
+     paste the URL → sign in & approve.
+   - **Grok / Hermes / Codex / Cursor / VS Code**: use their "add remote MCP
+     server" flow with the same Streamable-HTTP URL.
+   The exact button names differ per app, but every one of these accepts a
+   remote Streamable-HTTP MCP URL and then runs an OAuth login to Binance.
+4. **Fund the sub-account** with the spot/futures balance the strategies will
+   trade (the code sizes spot at $6 and futures at 5% of that balance ×3).
+5. **Paste a strategy prompt** (below) into the AI and let it run. Watch trades
+   in your AI's live output, or in the terminal on this PC.
+
+> **Security:** you are granting an AI limited trade rights on a real account.
+> Keep the sub-account funded with only what you are OK losing, do NOT grant
+> withdrawal, and re-check the scopes whenever Binance prompts you.
+
+Full walkthrough per client: [`CONNECTING.md`](CONNECTING.md)
+
 ## Local tools (run on this PC, no AI needed)
 ```
 pip install -r requirements.txt pytest
