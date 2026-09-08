@@ -1,11 +1,24 @@
-"""Position sizing for spot and perpetual futures.
+"""Exchange-filter-aware position sizing and order building.
 
-Spot  : fixed notional per order (default $6).
-Futures: fraction of the futures wallet balance per entry, at fixed leverage.
+Every order is snapped to the pair's REAL tickSize / stepSize and rejected if
+it falls below minQty or minNotional — so nothing generated here can be
+rejected by Binance for LOT_SIZE / PRICE_FILTER / MIN_NOTIONAL, which is the
+most common bug in exchange bots (post-only orders rejected for precision).
+
+All rounding is done with Decimal to avoid float drift.
 """
 from __future__ import annotations
 
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+
+from agent_os.market import SymbolFilter
+
+
+def snap_price(price: Decimal, tick: Decimal) -> Decimal:
+    """Round price to the nearest valid tick multiple."""
+    if tick <= 0:
+        return price
+    return (price / tick).to_integral_value(rounding=ROUND_HALF_UP) * tick
 
 
 def floor_to_step(value: Decimal, step: Decimal) -> Decimal:
@@ -14,21 +27,35 @@ def floor_to_step(value: Decimal, step: Decimal) -> Decimal:
     return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
 
-def size_spot(price: Decimal, notional_usd: Decimal, step_size: Decimal,
-              min_qty: Decimal, min_notional: Decimal) -> Decimal | None:
-    """Quantity for a spot order of fixed notional. None if below filters."""
-    qty = floor_to_step(notional_usd / price, step_size)
-    if qty < min_qty or qty * price < min_notional:
+def spot_qty_for_notional(price: Decimal, notional_usd: Decimal, flt: SymbolFilter) -> Decimal | None:
+    """Quantity to spend ~notional_usd on a spot order. None if unplaceable."""
+    qty = floor_to_step(notional_usd / price, flt.step_size)
+    if qty < flt.min_qty:
+        return None
+    if qty * price < flt.min_notional:
         return None
     return qty
 
 
-def size_futures(price: Decimal, balance: Decimal, balance_fraction: Decimal,
-                 leverage: int, step_size: Decimal, min_qty: Decimal,
-                 min_notional: Decimal) -> Decimal | None:
-    """Quantity for a futures order: fraction of balance * leverage notional."""
+def futures_qty_for_notional(price: Decimal, notional: Decimal, flt: SymbolFilter) -> Decimal | None:
+    """Quantity whose notional ~= given value on a futures order. None if unplaceable."""
+    qty = floor_to_step(notional / price, flt.step_size)
+    if qty < flt.min_qty:
+        return None
+    if qty * price < flt.min_notional:
+        return None
+    return qty
+
+
+def futures_qty_from_balance(price: Decimal, balance: Decimal, balance_fraction: Decimal,
+                             leverage: int, flt: SymbolFilter) -> Decimal | None:
+    """Futures qty for `balance_fraction` of balance as margin at `leverage`.
+
+    notional = balance * fraction * leverage.
+    """
     notional = balance * balance_fraction * Decimal(leverage)
-    qty = floor_to_step(notional / price, step_size)
-    if qty < min_qty or qty * price < min_notional:
-        return None
-    return qty
+    return futures_qty_for_notional(price, notional, flt)
+
+
+def snap_to_tick(price: Decimal, flt: SymbolFilter) -> Decimal:
+    return snap_price(price, flt.tick_size)

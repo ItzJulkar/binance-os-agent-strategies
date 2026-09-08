@@ -1,14 +1,15 @@
 """VOLUME-SPIKE BREAKOUT strategy.
 
-Enters only when three things align on the same candle:
-  1. VOLUME SPIKE: current volume >= RVOL threshold x its 20-bar average
+Enters only when three things align on the same 1h candle:
+  1. VOLUME SPIKE: current volume >= RVOL x its 20-bar average
   2. PRICE BREAKOUT: candle closes outside a Donchian(20) envelope
   3. VOLATILITY COMPRESSION: ATR(14) < its own 20-bar SMA (coiling before break)
 
-The volume surge is the primary filter separating a real breakout from a
-low-volume fakeout. Long on an upside break, short on a downside break.
+The volume surge separates a genuine breakout from a low-volume fakeout.
+Long on upside break, short on downside break. Runs on futures (5% balance @
+3x) and can fall back to spot.
 
-Algorithm params are private.
+Algorithm parameters are private.
 """
 from __future__ import annotations
 
@@ -19,92 +20,74 @@ from agent_os.indicators import atr, donchian, sma
 from engine.base import Strategy
 from engine.signal import Signal
 
-RVOL_ENTRY = Decimal("2.0")            # entry-grade volume spike
-ATR_COMPRESSION = Decimal("1.0")       # require ATR < SMA(ATR,20) before break
+RVOL_ENTRY = Decimal("2.0")
 DONCHIAN_PERIOD = 20
-VOL_SMA_PERIOD = 20
+VOL_PERIOD = 20
 ATR_PERIOD = 14
-ATR_STOP_MULT = Decimal("1.5")         # stop distance in ATR
-MIN_CANDLES = 60
+FUNDING_LONG_SKIP = Decimal("0.0005")   # skip crowded long if funding very positive
 
 
 class VolumeSpikeStrategy(Strategy):
     name = "volume_spike"
-    venue = "both"
+    venue = "futures"
 
     def scan(self, universe: dict[str, Any]) -> list[Signal]:
         signals: list[Signal] = []
-        cfg = self.config
-        # prefer futures for this directional strategy; fall back to spot symbols
-        symbols = universe.get("futures_symbols") or universe.get("spot_symbols", [])
-        for sym in symbols:
+        for sym in universe.get("futures_symbols", []):
             try:
-                candles = self.market.futures_klines(sym, "1h", 120)
+                candles = self.market.futures_klines(sym, "1h", 150)
             except Exception:
                 continue
-            if len(candles) < MIN_CANDLES:
+            if len(candles) < 80:
                 continue
-            sig = self._detect(sym, candles, cfg)
+            sig = self._detect(sym, candles, universe)
             if sig:
                 signals.append(sig)
         return signals
 
-    def _detect(self, sym: str, candles: list, cfg: dict):
+    def _detect(self, sym: str, candles: list, universe: dict) -> Signal | None:
         vols = [c.volume for c in candles]
         closes = [c.close for c in candles]
         highs = [c.high for c in candles]
         lows = [c.low for c in candles]
-        # volume spike
-        vol_sma = sma(vols, VOL_SMA_PERIOD)[-1]
+        # 1) volume spike
+        vol_sma = sma(vols, VOL_PERIOD)[-1]
         if vol_sma is None or vol_sma <= 0:
             return None
-        rvol = vols[-1] / vol_sma
-        if rvol < RVOL_ENTRY:
+        if vols[-1] / vol_sma < RVOL_ENTRY:
             return None
-        # ATR compression
-        atr_s = atr(candles, ATR_PERIOD)
-        atr_last = atr_s[-1]
-        atr_sma = sma([a for a in atr_s if a is not None], 20)
-        if atr_last is None or atr_sma is None or atr_last >= atr_sma:
+        # 2) ATR compression (coiling before break)
+        atr_series = atr(candles, ATR_PERIOD)
+        atr_last = atr_series[-1]
+        recent_atr = [a for a in atr_series[-VOL_PERIOD:] if a is not None]
+        if atr_last is None or len(recent_atr) < VOL_PERIOD // 2:
             return None
-        # Donchian breakout
-        u, lo = donchian(highs, lows, DONCHIAN_PERIOD)
+        if atr_last >= sum(recent_atr) / Decimal(len(recent_atr)):
+            return None
+        # 3) Donchian breakout vs PRIOR-20 channel (exclude current bar, else a
+        #    close can never exceed a high that includes itself -> never fires)
+        u, lo = donchian(highs[:-1], lows[:-1], DONCHIAN_PERIOD)
         if u[-1] is None:
             return None
         last = candles[-1].close
-        side = None
         if last > u[-1]:
             side = "BUY"
         elif last < lo[-1]:
             side = "SELL"
-        if side is None:
+        else:
             return None
-        # funding sanity for longs (skip if extreme positive / crowded)
-        funding = self._funding(sym, universe)
-        if side == "BUY" and funding is not None and funding > Decimal("0.0005"):
-            return None
-        # sizing: futures 5% balance @ 3x notional
+        # skip crowded long
+        if side == "BUY":
+            fund = universe.get("funding", {}).get(sym)
+            if fund is not None and fund.funding_rate > FUNDING_LONG_SKIP:
+                return None
         book = universe.get("futures_books", {}).get(sym)
-        price = book.ask if side == "BUY" and book else last
-        if side == "SELL":
-            price = book.bid if book and book.bid > 0 else last
         if not book:
             return None
-        bal = self._futures_balance(cfg)
-        from agent_os.sizing import size_futures
-        qty = size_futures(price, bal, Decimal(cfg["sizing"]["futures_balance_fraction"]),
-                           Decimal(cfg["sizing"]["futures_leverage"]),
-                           Decimal("0.00001"), Decimal("0.001"), Decimal("5"))
-        if qty is None:
+        price = book.ask if side == "BUY" else book.bid
+        if price is None or price <= 0:
             return None
-        return Signal(strategy="volume_spike", venue="futures", symbol=sym, side=side,
-                      entry_price=price, quantity=qty,
-                      stop_loss_pct=Decimal("0.03"), take_profit_pct=Decimal("0.06"))
-
-    def _funding(self, sym: str, universe) -> Decimal | None:
-        f = universe.get("funding", {}).get(sym)
-        return f.funding_rate if f else None
-
-    def _futures_balance(self, cfg: dict) -> Decimal:
-        # paper default; live reads from account
-        return Decimal(cfg.get("paper_balance", 1000))
+        balance = Decimal(self.config["sizing"]["paper_balance"])
+        return self.futures_directional(sym, price, side, balance,
+                                        stop_loss_pct=Decimal("0.03"),
+                                        take_profit_pct=Decimal("0.06"))

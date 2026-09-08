@@ -28,7 +28,7 @@ class Supervisor:
         self.config = config
         self.strategies = strategies
         self.paper = paper
-        self._paper_balance = Decimal(config.get("paper_balance", 1000))
+        self._paper_balance = Decimal(config.get("sizing", {}).get("paper_balance", 1000))
 
     # ---- universe ----
     def build_universe(self) -> dict[str, Any]:
@@ -40,6 +40,8 @@ class Supervisor:
         books = self.market.spot_tickers(symbols)
         futures_books = self.market.futures_tickers(futures_symbols)
         funding = self.market.futures_funding_rates(futures_symbols)
+        spot_filters = self.market.spot_filters(symbols)
+        futures_filters = self.market.futures_filters(futures_symbols)
         return {
             "quote": quote,
             "spot_symbols": symbols,
@@ -47,6 +49,8 @@ class Supervisor:
             "spot_books": books,
             "futures_books": futures_books,
             "funding": funding,
+            "spot_filters": spot_filters,
+            "futures_filters": futures_filters,
         }
 
     # ---- execution ----
@@ -93,24 +97,32 @@ class Supervisor:
         universe = self.build_universe()
         signals: list[Signal] = []
         for strat in self.strategies:
+            strat._universe = universe  # noqa: SLF001  (filter lookup)
             try:
                 signals.extend(strat.scan(universe))
                 signals.extend(strat.manage(universe))
             except Exception as e:  # noqa: BLE001
                 self.log.event("STRATEGY_ERROR", strategy=strat.name, error=str(e))
-        executed = []
+        # Group signals by (venue, symbol): one grid ladder = one open trade,
+        # but every order in an opened group still executes.
+        groups: dict[tuple[str, str], list[Signal]] = {}
         for sig in signals:
+            groups.setdefault((sig.venue, sig.symbol), []).append(sig)
+        executed: list[dict[str, Any]] = []
+        for (venue, symbol), grp in groups.items():
             if not self.risk.can_open():
-                self.log.event("RISK_CAP", symbol=sig.symbol, venue=sig.venue)
+                self.log.event("RISK_CAP", symbol=symbol, venue=venue)
                 continue
-            if self.risk.has(sig.symbol, sig.venue):
+            if self.risk.has(symbol, venue):
                 continue
-            resp = self.execute(sig)
-            executed.append(resp)
+            placed = [self.execute(s) for s in grp]
+            executed.extend(placed)
             self.risk.register(OpenTrade(
-                venue=sig.venue, symbol=sig.symbol, side=sig.side,
-                entry_price=sig.entry_price, quantity=sig.quantity,
-                strategy=sig.strategy, order_id=str(resp.get("orderId", "")),
+                venue=venue, symbol=symbol, side=grp[0].side,
+                entry_price=min(s.entry_price for s in grp),
+                quantity=sum(s.quantity for s in grp),
+                strategy=grp[0].strategy,
+                order_ids=[str(p.get("orderId", p.get("order_id", ""))) for p in placed],
             ))
         self.log.snapshot(venue="all", mode="paper" if self.paper else "live",
                          open_trades=self.risk.open_count(), executed=len(executed))

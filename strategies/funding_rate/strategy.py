@@ -1,13 +1,17 @@
-"""FUNDING-RATE strategy (Binance USDT-M perps).
+"""FUNDING-RATE strategy (Binance USDT-M perps) — directional flip.
 
-Two mutually-exclusive regimes driven by the 8h funding rate:
-  A) DIRECTIONAL FLIP (mean-reversion): extreme funding = crowded positioning.
-     Long when funding very negative (shorts crowded), short when very positive.
-     Collect funding while price reverts toward spot.
-  B) CASH-AND-CARRY HARVEST (delta-neutral): funding positive-but-stable, buy
-     spot + short the perp of equal notional to collect funding each settlement.
+Exploits extreme funding as a crowded-position signal. When shorts are crowded
+(funding very negative), go LONG to collect funding from shorts and ride the
+short-squeeze reversion toward spot. When longs are crowded (funding very
+positive), go SHORT to collect from longs and ride the unwind. Mean-reversion
+bet on funding normalizing to ~0.
 
-Only one regime active per symbol. Algorithm params are private.
+A "delta-neutral cash-and-carry" is intentionally NOT used here: the user's
+sizing caps (spot $6 only, perp 5% of balance @ 3x) cannot build an equal-leg
+hedge, so a harvest would just be an oversized unhedged short. Directional
+flip respects the caps and the 5-open-trade limit with one position per pair.
+
+Algorithm parameters are private.
 """
 from __future__ import annotations
 
@@ -17,92 +21,51 @@ from typing import Any
 from engine.base import Strategy
 from engine.signal import Signal
 
-# funding fractions are per-8h; e.g. 0.0005 = 0.05%/8h
-FLIP_THRESHOLD = Decimal("0.0005")        # |funding| to trigger directional flip
-SUSTAINED = Decimal("0.0004")             # min sustained magnitude
-LOOKBACK = 3                               # consecutive settlements to confirm
-HARVEST_MIN = Decimal("0.0001")
-HARVEST_MAX = Decimal("0.0003")
-EXIT_REVERT = Decimal("0.0001")
+FLIP = Decimal("0.0005")          # |funding| per 8h to trigger (0.05%)
+SUSTAINED = Decimal("0.0004")     # must have been at/above for lookback settles
+LOOKBACK = 3                      # consecutive settlements to confirm (24h)
+REVERT = Decimal("0.0001")        # close when funding reverts to ~zero
 
 
 class FundingRateStrategy(Strategy):
     name = "funding_rate"
-    venue = "both"
+    venue = "futures"
 
     def scan(self, universe: dict[str, Any]) -> list[Signal]:
         signals: list[Signal] = []
-        cfg = self.config
         for sym in universe.get("futures_symbols", []):
             f = universe.get("funding", {}).get(sym)
             if not f:
                 continue
-            rate = f.funding_rate
-            history = self._funding_history(sym)
-            # sustained check over last N settlements
-            recent = [r for r in history[-LOOKBACK:]]
-            if len(recent) < LOOKBACK:
+            hist = self._history(sym)
+            if len(hist) < LOOKBACK:
                 continue
-            # Regime A: directional flip
-            if rate <= -FLIP_THRESHOLD and all(r <= -SUSTAINED for r in recent):
-                sig = self._directional(sym, "BUY", f, cfg, universe)
-                if sig:
-                    signals.append(sig)
-            elif rate >= FLIP_THRESHOLD and all(r >= SUSTAINED for r in recent):
-                sig = self._directional(sym, "SELL", f, cfg, universe)
-                if sig:
-                    signals.append(sig)
-            # Regime B: cash-and-carry harvest (spot long + perp short)
-            elif HARVEST_MIN <= rate <= HARVEST_MAX:
-                sigs = self._harvest(sym, f, cfg, universe)
-                signals.extend(sigs)
+            rate = f.funding_rate
+            recent = hist[-LOOKBACK:]
+            if rate <= -FLIP and all(h <= -SUSTAINED for h in recent):
+                sig = self._flip(sym, "BUY", universe)
+            elif rate >= FLIP and all(h >= SUSTAINED for h in recent):
+                sig = self._flip(sym, "SELL", universe)
+            else:
+                sig = None
+            if sig:
+                signals.append(sig)
         return signals
 
-    def _funding_history(self, sym: str) -> list[Decimal]:
+    def _history(self, sym: str) -> list[Decimal]:
         try:
             return self.market.futures_funding_history(sym, LOOKBACK + 2)
         except Exception:
             return []
 
-    def _directional(self, sym, side, f, cfg, universe):
-        from agent_os.sizing import size_futures
+    def _flip(self, sym: str, side: str, universe: dict) -> Signal | None:
         book = universe.get("futures_books", {}).get(sym)
-        price = book.ask if side == "BUY" and book else (book.bid if book else None)
+        if not book:
+            return None
+        price = book.ask if side == "BUY" else book.bid
         if price is None or price <= 0:
             return None
-        bal = Decimal(cfg.get("paper_balance", 1000))
-        qty = size_futures(price, bal, Decimal(cfg["sizing"]["futures_balance_fraction"]),
-                           Decimal(cfg["sizing"]["futures_leverage"]),
-                           Decimal("0.00001"), Decimal("0.001"), Decimal("5"))
-        if qty is None:
-            return None
-        return Signal(strategy="funding_rate", venue="futures", symbol=sym, side=side,
-                      entry_price=price, quantity=qty,
-                      stop_loss_pct=Decimal("0.03"))
-
-    def _harvest(self, sym, f, cfg, universe):
-        """Spot BUY + futures SELL of equal notional (delta-neutral)."""
-        from agent_os.sizing import size_futures, size_spot
-        book = universe.get("spot_books", {}).get(sym)
-        fbook = universe.get("futures_books", {}).get(sym)
-        if not book or not fbook:
-            return []
-        spot_notional = Decimal(cfg["sizing"]["spot_notional_usd"])
-        spot_qty = size_spot(fbook.bid, spot_notional, Decimal("0.00001"),
-                             Decimal("0.001"), Decimal("5"))
-        if spot_qty is None:
-            return []
-        bal = Decimal(cfg.get("paper_balance", 1000))
-        # short perp matching spot notional
-        perp_qty = size_futures(fbook.bid, bal, Decimal(cfg["sizing"]["futures_balance_fraction"]),
-                                Decimal(cfg["sizing"]["futures_leverage"]),
-                                Decimal("0.00001"), Decimal("0.001"), Decimal("5"))
-        sigs = []
-        if spot_qty:
-            sigs.append(Signal(strategy="funding_rate", venue="spot", symbol=sym,
-                               side="BUY", entry_price=fbook.ask, quantity=spot_qty))
-        if perp_qty:
-            sigs.append(Signal(strategy="funding_rate", venue="futures", symbol=sym,
-                               side="SELL", entry_price=fbook.bid, quantity=perp_qty,
-                               reduce_only=False))
-        return sigs
+        balance = Decimal(self.config["sizing"]["paper_balance"])
+        return self.futures_directional(sym, price, side, balance,
+                                        stop_loss_pct=Decimal("0.03"),
+                                        take_profit_pct=Decimal("0.06"))

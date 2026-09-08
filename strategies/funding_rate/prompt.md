@@ -19,41 +19,37 @@ Binance Agent OS MCP. No essays, no permission-asking, no restating the prompt.
   You must be holding a position at the settlement timestamp to pay/receive.
 
 ## ALGORITHM (`strategies/funding_rate/strategy.py`)
-Two mutually-exclusive regimes, driven by the 8h funding rate `r`:
-- **A) DIRECTIONAL FLIP** (mean-reversion on crowded positioning):
-  - **LONG** when `r ≤ −0.05%/8h` AND funding has been ≤ −0.04% for **3
-    consecutive settlements** (shorts crowded → collect funding + ride squeeze).
-  - **SHORT** when `r ≥ +0.05%/8h` AND funding ≥ +0.04% for 3 settlements.
-  - Exit when funding reverts to within ~±0.01%/8h of zero, or stop hits, or
-    after ~72h.
-- **B) CASH-AND-CARRY HARVEST** (delta-neutral) when funding is **positive and
-  stable in +0.01% to +0.03%/8h**: buy spot + short the perp of ~equal notional,
-  collecting the funding every 8h with no directional risk. Exit when funding
-  drops below ~+0.005%/8h.
-- Only one regime per symbol. Never stack directional + harvest on one pair.
+Exploit **extreme funding** as a crowded-position signal (mean-reversion to
+funding ≈ 0). Only one position per pair:
+- **LONG** when `r ≤ −0.05%/8h` AND funding has been ≤ −0.04% for **3
+  consecutive settlements** (shorts crowded → collect funding from shorts +
+  ride the short-squeeze unwind).
+- **SHORT** when `r ≥ +0.05%/8h` AND funding ≥ +0.04% for 3 settlements
+  (longs crowded → collect funding from longs + ride the unwind).
+- Exit when funding reverts to within ~±0.01%/8h of zero, stop hits, or after
+  ~72h.
+
+> Note: a delta-neutral "cash-and-carry" harvest is deliberately NOT used — the
+> sizing caps (spot only $6, perp 5%·3x) cannot build an equal-leg hedge, so a
+> harvest would just be an oversized unhedged short. Directional flip only.
 
 ## EXECUTION STEPS
 1. Fetch the top-20 USDT perp symbols and their funding: last ~10 settlement
-   rates + the current/predicted next rate (`/fapi/v1/premiumIndex`). Use the
-   MCP market-data tools for klines/tickers.
-2. Classify each symbol: A-long, A-short, B-harvest, or none, using the
-   thresholds above. Skip any symbol whose predicted funding is **at the cap**
-   (e.g. BTC ±0.3%, alts ±0.75%) — cap-adjacent funding precedes violent moves.
-3. Read current positions; respect the 5-trade cap.
-4. Execute:
-   - **Regime A**: perp order via `futures_usds_newOrder` (set leverage 3 and
-     ISOLATED margin first), sized to 5% balance × 3. Attach a **stop ~3%**
-     below/above so adverse price before funding payouts cannot hurt you.
-   - **Regime B**: a `spot_newOrder` BUY (~$6) + a matching
-     `futures_usds_newOrder` SELL of equal notional (delta-neutral hedge).
-5. Manage before each 00/00/08/16 UTC settlement: re-poll funding. If it flips
-   sign, close the carry leg. Apply the 72h (A) / 240h (B) time-stop.
-6. Log each action as `FUNDING <A_LONG|A_SHORT|HARVEST> <symbol> side @ <price>
-   rate=<r>%`.
+   rates + the current/predicted next rate (`/fapi/v1/premiumIndex`).
+2. Classify each symbol: long-flip, short-flip, or none using the thresholds
+   above. Skip any symbol whose predicted funding is **at the cap** (BTC ±0.3%,
+   alts ±0.75%) — cap-adjacent funding precedes violent squeezes.
+3. Read current positions; respect the 5-trade cap (one per symbol).
+4. Execute: `futures_usds_changeInitialLeverage(symbol,3)` + ISOLATED margin,
+   then `futures_usds_newOrder` sized to **5% balance × 3**, with a **stop ~3%**
+   so adverse price before funding payouts cannot hurt you.
+5. Manage before each 00:00/08:00/16:00 UTC settlement: re-poll funding. If it
+   flips toward zero or past your exit threshold, close. Enforce the ~72h stop.
+6. Log each action as `FUNDING <LONG|SHORT> <symbol> @ <price> qty <q> rate=<r>%`.
 
 ## OUTPUT RULE
 One block only:
-`FUNDING: <A_LONG/A_SHORT/HARVEST on symbols> | open=<k>/5 | next_settlement=<utc>`
+`FUNDING: <LONG/SHORT on symbols> | open=<k>/5 | next_settlement=<utc>`
 If nothing crosses a threshold, print `FUNDING: none — funding in range`.
 No prose.
 

@@ -18,7 +18,7 @@ reference Python implementation of the logic (`strategies/*/strategy.py`).
 | **Grid** | `strategies/grid/` | Range-bound mean-reversion. Places a ladder of resting buy/sell orders around price and banks each oscillation. |
 | **Regime rotation** | `strategies/regime_rotation/` | A supervisor that classifies market regime and only trades the sub-strategy that has an edge in it. |
 | **Volume-spike breakout** | `strategies/volume_spike/` | Enters only when a breakout is backed by a genuine volume surge. |
-| **Funding-rate** | `strategies/funding_rate/` | Trades Binance perp funding — contrarian flips on extreme funding and delta-neutral funding harvest. |
+| **Funding-rate** | `strategies/funding_rate/` | Trades Binance perp funding — contrarian entries on extreme (crowded) funding. |
 
 ### 1) Grid
 Profits from a price that oscillates inside a range. Orders are placed at
@@ -52,12 +52,16 @@ stop.
 
 ### 4) Funding-rate
 Binance perpetuals settle a **funding payment every 8h** between longs and
-shorts. This strategy exploits that:
-- **Contrarian flip**: extreme funding signals a crowded trade. Very negative
-  funding (shorts crowded) → go long to collect funding and ride the squeeze;
-  very positive → go short.
-- **Cash-and-carry harvest**: steady positive funding → buy spot and short the
-  perp of equal notional (delta-neutral) to collect funding with no price risk.
+shorts. This strategy trades **extreme funding as a crowded-position signal**
+(mean-reversion to funding ≈ 0):
+- Very negative funding (shorts crowded) → go **long** to collect funding from
+  shorts and ride the short-squeeze unwind.
+- Very positive funding (longs crowded) → go **short** to collect from longs and
+  ride the unwind.
+
+It only takes a position when funding has been extreme and sustained for
+several consecutive settlements, and it exits once funding normalizes or a
+volatility-based stop hits.
 
 ---
 
@@ -92,14 +96,16 @@ powershell -ExecutionPolicy Bypass -File terminal\terminal.ps1
 It tails the live log and renders a color-coded, two-column dashboard of open
 trades and recent orders as the AI places them.
 
-### Local paper backtest / smoke test
-
-Run all four strategies in paper mode against live market data (no real orders):
+### Local paper / demo tests (no real money)
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -q        # unit tests (sizing, risk, indicators)
-python scripts/smoke.py           # one full paper cycle over the top-20 pairs
+python -m pytest tests/ -q              # unit tests (sizing, risk, indicators, strategy logic)
+python scripts/smoke.py                 # one full supervisor paper cycle over the top-20 pairs
+python scripts/validate.py              # placeability demo: runs every strategy on the real top-20
+                                        # and asserts every order would be ACCEPTED by Binance
+                                        # (valid stepSize multiple, >= minQty, >= minNotional,
+                                        #  price on tickSize) — catches LOT_SIZE rejections in demo.
 ```
 
 ---

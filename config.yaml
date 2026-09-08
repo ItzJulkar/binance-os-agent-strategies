@@ -23,6 +23,8 @@ sizing:
   # Futures: fraction of futures wallet balance used per entry
   futures_balance_fraction: 0.05
   futures_leverage: 3
+  # Balance assumed in paper/demo mode (no live account read)
+  paper_balance: 1000
 
 risk:
   # Hard cap on total open trades across all strategies (spot + futures)

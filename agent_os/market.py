@@ -1,7 +1,8 @@
 """Public Binance market-data client.
 
 Only unauthenticated market data lives here (tickers, klines, funding, order
-books). All account/order actions go through the Agent OS MCP client.
+books, symbol filters). All account/order actions go through the Agent OS MCP
+client.
 """
 from __future__ import annotations
 
@@ -20,6 +21,15 @@ def _get(url: str, timeout: int = 30) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": "binance-os-strategies"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
+
+
+@dataclass(frozen=True)
+class SymbolFilter:
+    symbol: str
+    tick_size: Decimal
+    step_size: Decimal
+    min_qty: Decimal
+    min_notional: Decimal
 
 
 @dataclass(frozen=True)
@@ -50,24 +60,56 @@ class FundingRate:
 
 
 class MarketDataClient:
-    """Fetch top-N USDT pairs, klines, books and funding for spot + futures."""
+    """Fetch top-N USDT pairs, klines, books, funding and filters."""
 
     def __init__(self, top_n: int = 20, quote: str = "USDT", min_vol: Decimal = Decimal(10_000_000)) -> None:
         self.top_n = top_n
         self.quote = quote
         self.min_vol = min_vol
+        self._spot_filters: dict[str, SymbolFilter] | None = None
+        self._futures_filters: dict[str, SymbolFilter] | None = None
+
+    # ---- shared helpers ----
+    def _top_pairs_from(self, tickers: list[dict]) -> list[str]:
+        rows = []
+        for t in tickers:
+            sym = t["symbol"]
+            if sym.endswith(self.quote):
+                vol = Decimal(str(t.get("quoteVolume", "0")))
+                if vol >= self.min_vol:
+                    rows.append((sym, vol))
+        rows.sort(key=lambda r: r[1], reverse=True)
+        return [s for s, _ in rows[: self.top_n]]
+
+    @staticmethod
+    def _parse_filters(payload: dict) -> dict[str, SymbolFilter]:
+        out: dict[str, SymbolFilter] = {}
+        for s in payload.get("symbols", []):
+            if s.get("status", "TRADING") != "TRADING":
+                continue
+            f = {i["filterType"]: i for i in s.get("filters", [])}
+            lot = f.get("LOT_SIZE", {})
+            pf = f.get("PRICE_FILTER", {})
+            mn = f.get("MIN_NOTIONAL", f.get("NOTIONAL", {}))
+            out[s["symbol"]] = SymbolFilter(
+                symbol=s["symbol"],
+                tick_size=Decimal(str(pf.get("tickSize", "0"))),
+                step_size=Decimal(str(lot.get("stepSize", "0"))),
+                min_qty=Decimal(str(lot.get("minQty", "0"))),
+                min_notional=Decimal(str(mn.get("minNotional", mn.get("notional", "0")))),
+            )
+        return out
 
     # ---- spot ----
     def spot_top_pairs(self) -> list[str]:
-        tickers = _get(f"{SPOT_API}/api/v3/ticker/24hr")
-        rows = []
-        for t in tickers:
-            if t["symbol"].endswith(self.quote):
-                vol = Decimal(str(t.get("quoteVolume", "0")))
-                if vol >= self.min_vol:
-                    rows.append((t["symbol"], vol))
-        rows.sort(key=lambda r: r[1], reverse=True)
-        return [s for s, _ in rows[: self.top_n]]
+        return self._top_pairs_from(_get(f"{SPOT_API}/api/v3/ticker/24hr"))
+
+    def spot_filters(self, symbols: list[str] | None = None) -> dict[str, SymbolFilter]:
+        if self._spot_filters is None:
+            self._spot_filters = self._parse_filters(_get(f"{SPOT_API}/api/v3/exchangeInfo"))
+        if symbols is None:
+            return self._spot_filters
+        return {s: self._spot_filters[s] for s in symbols if s in self._spot_filters}
 
     def spot_tickers(self, symbols: list[str]) -> dict[str, Ticker]:
         out = {}
@@ -88,15 +130,14 @@ class MarketDataClient:
 
     # ---- futures ----
     def futures_top_pairs(self) -> list[str]:
-        tickers = _get(f"{FUTURES_API}/fapi/v1/ticker/24hr")
-        rows = []
-        for t in tickers:
-            if t["symbol"].endswith(self.quote):
-                vol = Decimal(str(t.get("quoteVolume", "0")))
-                if vol >= self.min_vol:
-                    rows.append((t["symbol"], vol))
-        rows.sort(key=lambda r: r[1], reverse=True)
-        return [s for s, _ in rows[: self.top_n]]
+        return self._top_pairs_from(_get(f"{FUTURES_API}/fapi/v1/ticker/24hr"))
+
+    def futures_filters(self, symbols: list[str] | None = None) -> dict[str, SymbolFilter]:
+        if self._futures_filters is None:
+            self._futures_filters = self._parse_filters(_get(f"{FUTURES_API}/fapi/v1/exchangeInfo"))
+        if symbols is None:
+            return self._futures_filters
+        return {s: self._futures_filters[s] for s in symbols if s in self._futures_filters}
 
     def futures_tickers(self, symbols: list[str]) -> dict[str, Ticker]:
         out = {}
