@@ -88,6 +88,6 @@ class VolumeSpikeStrategy(Strategy):
         if price is None or price <= 0:
             return None
         balance = self._futures_balance()
+        stop, tp = self.atr_stop_tp(candles)
         return self.futures_directional(sym, price, side, balance,
-                                        stop_loss_pct=Decimal("0.03"),
-                                        take_profit_pct=Decimal("0.06"))
+                                        stop_loss_pct=stop, take_profit_pct=tp)

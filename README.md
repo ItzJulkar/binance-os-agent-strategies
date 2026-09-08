@@ -13,6 +13,28 @@ is no live signal it places nothing.
 
 Spot and futures are both covered across the four strategies (see Venue column).
 
+## Auto stop-loss & take-profit (market-adaptive)
+
+Every entry gets its own **stop-loss and take-profit that are not hardcoded** —
+they are set from that coin's current volatility, so they adjust to the market:
+
+- Each strategy reads the coin's recent **average true range (ATR)** and sets
+  the stop at roughly **1.5× that ATR** and the take-profit at roughly **3× it**.
+- A calm coin (small ATR) gets a **tight** stop and target; a volatile coin
+  (large ATR) gets a **wider** one — so positions aren't stopped out by normal
+  noise on a choppy coin, and targets aren't set unrealistically far on a calm one.
+- Results are clamped to sane bounds (stop never below ~1% or above ~8%, target
+  capped ~20%) so extreme volatility can't produce absurd orders.
+- Once price hits a stop it **closes at market** (loss cut); when it hits the
+  take-profit it **closes at market** (gain locked). Closing frees a slot so the
+  bot can keep trading — it doesn't freeze at the 5-position cap.
+- These are configured in `config.yaml` (`risk.stop_atr_multiplier`,
+  `take_profit_atr_multiplier`, and the clamp bounds).
+
+The one exception is the **Grid** strategy: its natural "take-profit" is the
+range recovery (it sells when price bounces back to the top of its range), which
+is also market-based. The ATR stop still protects the downside.
+
 ## How to connect your own AI to Binance Agent OS
 
 The strategies run through **one Binance MCP endpoint**:
@@ -148,8 +170,6 @@ This strategy trades USDT-M FUTURES. Use the Binance Agent OS MCP to fetch data 
 
 Act on every live signal. If there is none right now, place nothing and say "no signal".
 ```
-
----
 
 ---
 

@@ -128,6 +128,35 @@ class Strategy(ABC):
                 pass
         return Decimal(self.config["sizing"]["paper_balance"])
 
+    def atr_stop_tp(self, candles: list) -> tuple[Decimal | None, Decimal | None]:
+        """Volatility-based (market-adaptive) stop-loss and take-profit fractions.
+
+        Computed from the symbol's live ATR(14)/price scaled by the config
+        multipliers, then clamped to sane bounds. Returns (stop_pct, tp_pct);
+        each may be None if that leg is disabled (multiplier 0), in which case
+        the caller should fall back to the fixed default.
+        """
+        from agent_os.indicators import atr_percent
+        risk_cfg = self.config.get("risk", {})
+        stop_mult = Decimal(str(risk_cfg.get("stop_atr_multiplier", 1.5)))
+        tp_mult = Decimal(str(risk_cfg.get("take_profit_atr_multiplier", 3.0)))
+        atrp = atr_percent(candles)
+        stop = tp = None
+        if atrp is not None:
+            if stop_mult > 0:
+                stop = atrp * stop_mult
+                stop = min(max(stop, Decimal(str(risk_cfg.get("stop_min_pct", 0.01)))),
+                           Decimal(str(risk_cfg.get("stop_max_pct", 0.08))))
+            if tp_mult > 0:
+                tp = atrp * tp_mult
+                tp = min(tp, Decimal(str(risk_cfg.get("take_profit_max_pct", 0.20))))
+        # fall back to fixed defaults for any disabled / unavailable leg
+        if stop is None:
+            stop = Decimal(str(risk_cfg.get("default_stop_loss_pct", 0.03)))
+        if tp is None:
+            tp = Decimal(str(risk_cfg.get("default_take_profit_pct", 0.05)))
+        return stop, tp
+
     def _spot_filter(self, symbol: str) -> SymbolFilter | None:
         flts = getattr(self, "_universe", None) and self._universe.get("spot_filters", {})
         return flts.get(symbol) if flts else None

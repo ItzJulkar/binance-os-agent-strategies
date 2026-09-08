@@ -10,14 +10,45 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent_os.market import Candle, MarketDataClient, SymbolFilter
-from agent_os.sizing import snap_price
+from agent_os.indicators import atr_percent
+from agent_os.market import Candle, SymbolFilter
 from engine.base import Strategy
 from engine.log import StrategyLog
 from engine.risk import OpenTrade, RiskManager
 from engine.supervisor import Supervisor
 from strategies.grid.strategy import GridStrategy
 from strategies.regime_rotation.strategy import RegimeRotationStrategy
+
+
+def test_atr_percent():
+    # constant 2-range candles -> ATR 2 on price 100 -> 2%
+    c = [Candle(i, Decimal(100), Decimal(101), Decimal(99), Decimal(100), Decimal(10)) for i in range(30)]
+    p = atr_percent(c, 14)
+    assert p is not None
+    assert abs(p - Decimal("0.02")) < Decimal("0.001")
+
+
+def test_atr_stop_tp_market_adaptive():
+    """Stop/target must come from ATR (volatility), not a fixed number — a
+    calm symbol gets tighter SL/TP than a volatile one."""
+    cfg = {"markets": {}, "sizing": {"paper_balance": 1000},
+           "risk": {"stop_atr_multiplier": 1.5, "take_profit_atr_multiplier": 3.0,
+                    "stop_min_pct": 0.01, "stop_max_pct": 0.08,
+                    "take_profit_max_pct": 0.20,
+                    "default_stop_loss_pct": 0.03, "default_take_profit_pct": 0.05}}
+    log = StrategyLog("tests/_atr.jsonl")
+    risk = RiskManager(5)
+    m = type("M", (), {})()
+    s = GridStrategy(None, m, risk, log, cfg)
+
+    calm = [Candle(i, Decimal(100), Decimal(100.4), Decimal(99.6), Decimal(100), Decimal(10)) for i in range(40)]  # ATR~0.4 -> 0.4%
+    volatile = [Candle(i, Decimal(100), Decimal(102), Decimal(98), Decimal(100), Decimal(10)) for i in range(40)]  # ATR~2 -> 2%
+    sc, tc = s.atr_stop_tp(calm)
+    sv, tv = s.atr_stop_tp(volatile)
+    assert sc < sv, f"calm stop {sc} should be tighter than volatile stop {sv}"
+    assert tc < tv, f"calm target {tc} should be tighter than volatile target {tv}"
+    log.close()
+
 
 F = SymbolFilter("TESTUSDT", Decimal("0.01"), Decimal("0.01"), Decimal("0.01"), Decimal("5"))
 CFG = {"markets": {"top_n_pairs": 3, "quote_asset": "USDT", "allowlist": [], "min_quote_volume": 0},

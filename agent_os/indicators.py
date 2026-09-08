@@ -174,3 +174,15 @@ def volume_ratio(volumes_seq: Sequence[Decimal], lookback: int = 20) -> Decimal 
     if avg == 0:
         return None
     return volumes_seq[-1] / avg
+
+
+def atr_percent(candles: Sequence[Candle], period: int = 14) -> Decimal | None:
+    """ATR(period) as a fraction of the latest close (current volatility, 0..1).
+
+    e.g. ATR/close = 0.02 means ~2% average true range per bar. Used to size
+    volatility-based stop-loss / take-profit rather than hardcoded percentages.
+    """
+    a = atr(candles, period)
+    if not a or a[-1] is None or not candles or candles[-1].close <= 0:
+        return None
+    return a[-1] / candles[-1].close

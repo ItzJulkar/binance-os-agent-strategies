@@ -92,8 +92,9 @@ class RegimeRotationStrategy(Strategy):
         ema50 = ema(closes, 50)[-1]
         if ema50 is None or last <= ema50:
             return
+        stop, tp = self.atr_stop_tp(candles)
         sig = self.spot_buy(sym, book.ask if book.ask > 0 else last,
-                            stop_loss_pct=Decimal("0.03"), take_profit_pct=Decimal("0.06"))
+                            stop_loss_pct=stop, take_profit_pct=tp)
         if sig:
             signals.append(sig)
 
@@ -105,7 +106,8 @@ class RegimeRotationStrategy(Strategy):
         rsiv = rsi(closes, 14)[-1]
         last = candles[-1].close
         if rsiv is not None and rsiv < RSI_MR_BUY and last < low[-1]:
+            stop, tp = self.atr_stop_tp(candles)
             sig = self.spot_buy(sym, book.bid if book.bid > 0 else last,
-                                take_profit_pct=Decimal("0.03"))
+                                stop_loss_pct=stop, take_profit_pct=tp)
             if sig:
                 signals.append(sig)

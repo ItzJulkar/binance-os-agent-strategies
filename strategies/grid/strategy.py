@@ -61,9 +61,8 @@ class GridStrategy(Strategy):
             mid_range = (hi + lo) / 2
             # buy the dip: price is at/below the lower half of the range
             if book.ask <= mid_range * LOWER_HALF_BUFFER:
-                sig = self.spot_buy(sym, book.ask,
-                                    stop_loss_pct=Decimal("0.03"),
-                                    take_profit_pct=Decimal("0.04"))
+                stop, tp = self.atr_stop_tp(candles)
+                sig = self.spot_buy(sym, book.ask, stop_loss_pct=stop, take_profit_pct=tp)
                 if sig:
                     signals.append(sig)
         return signals

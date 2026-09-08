@@ -66,6 +66,13 @@ class FundingRateStrategy(Strategy):
         if price is None or price <= 0:
             return None
         balance = self._futures_balance()
+        # volatility-based stop/target from the symbol's live ATR
+        stop = tp = None
+        try:
+            candles = self.market.futures_klines(sym, "1h", 60)
+            if candles:
+                stop, tp = self.atr_stop_tp(candles)
+        except Exception:
+            pass
         return self.futures_directional(sym, price, side, balance,
-                                        stop_loss_pct=Decimal("0.03"),
-                                        take_profit_pct=Decimal("0.06"))
+                                        stop_loss_pct=stop, take_profit_pct=tp)
