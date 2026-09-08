@@ -13,6 +13,32 @@ is no live signal it places nothing.
 
 Spot and futures are both covered across the four strategies (see Venue column).
 
+## ▶ Live trading (this is the real thing)
+
+This repo is built to **trade live on real money** through the Binance Agent
+OS MCP. There is no testnet and no demo gate — when you authorize a trade, it
+executes on Binance. Start small and only with money you can afford to lose.
+
+**Run all four strategies live in one go** — paste the master prompt in
+[`LIVE.md`](LIVE.md) into any AI that has the Binance Agent OS MCP connected
+(Hermes / Claude / ChatGPT / Grok). The prompt makes the AI:
+
+1. Check your real spot + futures balances and open positions first,
+2. run each of the four strategies' code against the live market,
+3. place MARKET orders for every real signal it finds,
+4. set an ATR-based stop-loss / take-profit on each entry,
+5. confirm fills and report back — and it **never invents a trade** if there is
+   no signal (it says `no signal` and does nothing).
+
+Rules it enforces (also in `config.yaml`): top-20 USDT coins, all MARKET orders,
+spot $6 / futures 5% of wallet ×3, max 5 open positions total, one coin = one
+position. If the futures wallet is empty it skips the futures strategies and
+tells you why.
+
+> Paper / no-risk runs still exist for testing — see the Local tools block
+> below — but the default, headline use of this repo is **live Agent OS
+> trading**.
+
 ## Auto stop-loss & take-profit (market-adaptive)
 
 Every entry gets its own **stop-loss and take-profit that are not hardcoded** —
