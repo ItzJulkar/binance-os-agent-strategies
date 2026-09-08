@@ -16,9 +16,11 @@ class OpenTrade:
     symbol: str
     side: str             # "BUY" | "SELL"
     entry_price: Decimal
-    quantity: Decimal     # total across ladder
+    quantity: Decimal
     strategy: str
     order_ids: list[str] | None = None
+    stop_loss_pct: Decimal | None = None    # exit if price moves this fraction against
+    take_profit_pct: Decimal | None = None  # exit if price moves this fraction for us
 
 
 class RiskManager:

@@ -40,8 +40,39 @@ class Strategy(ABC):
         raise NotImplementedError
 
     def manage(self, universe: dict[str, Any]) -> list[Signal]:
-        """Optional: manage open trades (TP/SL/grid rebalance). Default none."""
-        return []
+        """Default management: close any of this strategy's open trades that hit
+        their take-profit or stop-loss. Subclasses may override to add
+        strategy-specific exits (e.g. grid range recovery)."""
+        exits: list[Signal] = []
+        for trade in list(self.risk.trades):
+            if trade.strategy != self.name:
+                continue
+            book = None
+            if trade.venue == "spot":
+                book = universe.get("spot_books", {}).get(trade.symbol)
+            elif trade.venue == "futures":
+                book = universe.get("futures_books", {}).get(trade.symbol)
+            if not book:
+                continue
+            # for a BUY, current = bid (what you can sell at); for SELL, ask
+            cur = (book.bid if trade.side == "BUY" else book.ask)
+            if cur is None or cur <= 0 or trade.entry_price <= 0:
+                continue
+            chg = (cur - trade.entry_price) / trade.entry_price
+            if trade.side == "SELL":
+                chg = -chg
+            exit_side = "SELL" if trade.side == "BUY" else "BUY"
+            hit = False
+            if trade.stop_loss_pct is not None and chg <= -trade.stop_loss_pct:
+                hit = True
+            elif trade.take_profit_pct is not None and chg >= trade.take_profit_pct:
+                hit = True
+            if hit:
+                exits.append(Signal(strategy=self.name, venue=trade.venue,
+                                    symbol=trade.symbol, side=exit_side,
+                                    entry_price=cur, quantity=trade.quantity,
+                                    reduce_only=(trade.venue == "futures")))
+        return exits
 
     # ---- filter-aware order building ----
     def spot_buy(self, symbol: str, price: Decimal, strategy: str | None = None,

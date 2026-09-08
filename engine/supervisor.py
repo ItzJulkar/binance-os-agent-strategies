@@ -97,20 +97,44 @@ class Supervisor:
     # ---- main loop ----
     def run_once(self) -> dict[str, Any]:
         universe = self.build_universe()
-        signals: list[Signal] = []
         for strat in self.strategies:
             strat._universe = universe  # noqa: SLF001  (filter lookup)
+
+        executed: list[dict[str, Any]] = []
+
+        # 1) EXITS first: each strategy's manage() decides what to close (TP/SL /
+        #    range recovery). Closing frees a cap slot for new entries this cycle.
+        for strat in self.strategies:
             try:
-                signals.extend(strat.scan(universe))
-                signals.extend(strat.manage(universe))
+                for sig in strat.manage(universe):
+                    # manage() emits ONLY exits for trades we hold; require it and
+                    # execute. reduce_only is the futures execution flag (still valid
+                    # here) — NOT a reason to skip.
+                    if not self.risk.has(sig.symbol, sig.venue):
+                        continue  # skip if we don't actually hold that position
+                    placed = self.execute(sig)
+                    executed.append(placed)
+                    self.risk.remove(sig.symbol, sig.venue)
+                    self.log.event("ORDER_EXIT", venue=sig.venue, strategy=sig.strategy,
+                                   symbol=sig.symbol, side=sig.side,
+                                   price=str(sig.entry_price), qty=str(sig.quantity),
+                                   order_id=str(placed.get("orderId", "")))
             except Exception as e:  # noqa: BLE001
                 self.log.event("STRATEGY_ERROR", strategy=strat.name, error=str(e))
-        # Group signals by (venue, symbol): one grid ladder = one open trade,
-        # but every order in an opened group still executes.
+
+        # 2) ENTRIES after exits, respecting freed capacity.
+        entry_signals: list[Signal] = []
+        for strat in self.strategies:
+            try:
+                entry_signals.extend(strat.scan(universe))
+            except Exception as e:  # noqa: BLE001
+                self.log.event("STRATEGY_ERROR", strategy=strat.name, error=str(e))
+
         groups: dict[tuple[str, str], list[Signal]] = {}
-        for sig in signals:
+        for sig in entry_signals:
             groups.setdefault((sig.venue, sig.symbol), []).append(sig)
-        executed: list[dict[str, Any]] = []
+
+        opened = 0
         for (venue, symbol), grp in groups.items():
             if not self.risk.can_open():
                 self.log.event("RISK_CAP", symbol=symbol, venue=venue)
@@ -119,13 +143,18 @@ class Supervisor:
                 continue
             placed = [self.execute(s) for s in grp]
             executed.extend(placed)
+            opened += 1
+            tp = next((s.take_profit_pct for s in grp if s.take_profit_pct is not None), None)
+            sl = next((s.stop_loss_pct for s in grp if s.stop_loss_pct is not None), None)
             self.risk.register(OpenTrade(
                 venue=venue, symbol=symbol, side=grp[0].side,
                 entry_price=min(s.entry_price for s in grp),
                 quantity=sum(s.quantity for s in grp),
                 strategy=grp[0].strategy,
                 order_ids=[str(p.get("orderId", p.get("order_id", ""))) for p in placed],
+                stop_loss_pct=sl,
+                take_profit_pct=tp,
             ))
         self.log.snapshot(venue="all", mode="paper" if self.paper else "live",
                          open_trades=self.risk.open_count(), executed=len(executed))
-        return {"universe": universe, "signals": len(signals), "executed": executed}
+        return {"universe": universe, "signals": len(entry_signals), "executed": executed}

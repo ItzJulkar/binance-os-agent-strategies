@@ -69,6 +69,35 @@ class GridStrategy(Strategy):
         return signals
 
     def manage(self, universe: dict[str, Any]) -> list[Signal]:
-        # Market-sell exits on recovery / TP / SL are driven by the AI lifecycle
-        # in the prompt; the risk layer tracks the open symbol.
-        return []
+        """Grid exits: market-sell a held spot position when price rises into the
+        UPPER half of its 20-bar range (the recovery leg) or falls below the lower
+        bound (range broke -> stop). This closes the dip-buy round-trip."""
+        exits: list[Signal] = []
+        filters = universe.get("spot_filters", {})
+        for trade in list(self.risk.trades):
+            if trade.strategy != self.name or trade.venue != "spot":
+                continue
+            book = universe.get("spot_books", {}).get(trade.symbol)
+            if not book:
+                continue
+            try:
+                candles = self.market.spot_klines(trade.symbol, "1h", 60)
+            except Exception:
+                continue
+            if len(candles) < RANGE_LOOKBACK:
+                continue
+            window = candles[-(RANGE_LOOKBACK + 1):-1]
+            if len(window) < RANGE_LOOKBACK:
+                continue
+            hi = max(c.high for c in window)
+            lo = min(c.low for c in window)
+            if hi <= lo:
+                continue
+            mid_range = (hi + lo) / 2
+            # exit long: price recovered into upper half (sell), OR range broke down
+            # below the low (stop). Use bid (what we can sell at).
+            if book.bid >= mid_range or book.bid < lo:
+                sig = Signal(strategy="grid", venue="spot", symbol=trade.symbol,
+                             side="SELL", entry_price=book.bid, quantity=trade.quantity)
+                exits.append(sig)
+        return exits
