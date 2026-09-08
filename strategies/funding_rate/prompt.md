@@ -1,7 +1,11 @@
-# FUNDING RATE — AI PROMPT
+# FUNDING RATE — run now
 
-Run the **funding-rate** strategy. Read the logic in `strategies/funding_rate/strategy.py` and follow it exactly.
+Use the repo https://github.com/ItzJulkar/binance-os-agent-strategies
+Read `strategies/funding_rate/strategy.py` there and follow it. It is the whole strategy.
 
-Rules: only top-20 USDT futures coins · all MARKET orders (instant fill) · each position 5% of wallet at 3x · max 5 open positions.
+Execute it live on the Binance Agent OS MCP now:
+- top-20 USDT futures coins · all MARKET orders · each position 5% of wallet at 3x
+- max 5 open positions
 
-When a coin's 8h funding is extreme (crowd too long → short it, crowd too short → long it), open at market. Close when funding normalizes / stop / ~3 days. Report one line: what you did or "none — funding normal".
+Do not explain, do not summarize the code back to me. Just scan funding rates,
+open the trades the code says, then report in one line.

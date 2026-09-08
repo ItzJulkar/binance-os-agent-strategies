@@ -1,7 +1,11 @@
-# REGIME ROTATION — AI PROMPT
+# REGIME ROTATION — run now
 
-Run the **regime rotation** strategy. Read the logic in `strategies/regime_rotation/strategy.py` and follow it exactly.
+Use the repo https://github.com/ItzJulkar/binance-os-agent-strategies
+Read `strategies/regime_rotation/strategy.py` there and follow it. It is the whole strategy.
 
-Rules: only top-20 USDT coins · all MARKET orders (instant fill) · spot $6 per order, futures 5% of wallet at 3x · max 5 open positions · stop new entries if down 3% on the day.
+Execute it live on the Binance Agent OS MCP now:
+- top-20 USDT coins · all MARKET orders · spot $6, futures 5% of wallet at 3x
+- max 5 open positions
 
-Classify each coin's regime from the code. Buy only where it has an edge (trending→momentum, ranging→dip buy). Do nothing in crash/jumpy. Report one line: market state + what you did + open count (x/5).
+Do not explain, do not summarize the code back to me. Just scan, classify each
+coin's regime, place the trades the code says, then report in one or two lines.

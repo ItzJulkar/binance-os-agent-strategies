@@ -1,7 +1,11 @@
-# VOLUME-SPIKE BREAKOUT — AI PROMPT
+# VOLUME-SPIKE — run now
 
-Run the **volume-spike breakout** strategy. Read the logic in `strategies/volume_spike/strategy.py` and follow it exactly.
+Use the repo https://github.com/ItzJulkar/binance-os-agent-strategies
+Read `strategies/volume_spike/strategy.py` there and follow it. It is the whole strategy.
 
-Rules: only top-20 USDT coins · all MARKET orders (instant fill) · spot $6 per order, futures 5% of wallet at 3x · max 5 open positions.
+Execute it live on the Binance Agent OS MCP now:
+- top-20 USDT coins · all MARKET orders · spot $6, futures 5% of wallet at 3x
+- max 5 open positions
 
-Scan for a volume spike (≥2x) + a real breakout after quiet trading. Only then enter at market. Manage open ones (stop / take profit). Report one line: what you did or "none — no signal".
+Do not explain, do not summarize the code back to me. Just scan, find the
+volume-spike breakout the code looks for, place the trade, then report in one line.
