@@ -1,0 +1,44 @@
+# Binance Agent OS Multi-Strategy Bot — Configuration
+# Public values only. Strategy algorithm parameters live in the strategy code
+# files (kept private, not documented here).
+
+execution:
+  # Binance Agent OS MCP endpoint (OAuth, no API keys)
+  mcp_url: "https://agent.binance.com/mcp/agentic"
+  # Number of confirmation-gated write retries before giving up a cycle
+  max_write_retries: 3
+  refresh_seconds: 5
+
+markets:
+  # Universe = top-N USDT pairs by 24h quote volume (dynamic, refreshed each scan)
+  top_n_pairs: 20
+  quote_asset: "USDT"
+  # Optional hard allowlist; if empty, the top-N dynamic universe is used.
+  allowlist: []
+  min_quote_volume: 10000000
+
+sizing:
+  # Spot: fixed notional per order (USD)
+  spot_notional_usd: 6
+  # Futures: fraction of futures wallet balance used per entry
+  futures_balance_fraction: 0.05
+  futures_leverage: 3
+
+risk:
+  # Hard cap on total open trades across all strategies (spot + futures)
+  max_open_trades: 5
+  # Stop-loss / take-profit defaults (fractions of entry price)
+  default_stop_loss_pct: 0.03
+  default_take_profit_pct: 0.05
+
+terminal:
+  # Log file the live terminal tails
+  live_log: "~/.binance-os-strategies/logs/live.jsonl"
+  demo_log: "~/.binance-os-strategies/logs/demo.jsonl"
+
+strategies:
+  enabled:
+    grid: true
+    regime_rotation: true
+    volume_spike: true
+    funding_rate: true

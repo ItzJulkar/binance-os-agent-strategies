@@ -1,0 +1,117 @@
+"""Supervisor engine: builds the market universe, runs strategies, executes.
+
+The supervisor is venue-agnostic about execution: it calls `execute(signal)`
+which is wired to either the live Agent OS MCP client or a paper simulator.
+"""
+from __future__ import annotations
+
+import time
+from decimal import Decimal
+from typing import Any
+
+from agent_os.client import AgentOSClient
+from agent_os.market import MarketDataClient
+from engine.base import Strategy
+from engine.log import StrategyLog
+from engine.risk import RiskManager, OpenTrade
+from engine.signal import Signal
+
+
+class Supervisor:
+    def __init__(self, market: MarketDataClient, client: AgentOSClient | None,
+                 risk: RiskManager, log: StrategyLog, config: dict[str, Any],
+                 strategies: list[Strategy], paper: bool = False) -> None:
+        self.market = market
+        self.client = client
+        self.risk = risk
+        self.log = log
+        self.config = config
+        self.strategies = strategies
+        self.paper = paper
+        self._paper_balance = Decimal(config.get("paper_balance", 1000))
+
+    # ---- universe ----
+    def build_universe(self) -> dict[str, Any]:
+        allowlist = self.config.get("allowlist") or []
+        top_n = self.config.get("top_n_pairs", 20)
+        quote = self.config.get("quote_asset", "USDT")
+        symbols = allowlist if allowlist else self.market.spot_top_pairs()
+        futures_symbols = allowlist if allowlist else self.market.futures_top_pairs()
+        books = self.market.spot_tickers(symbols)
+        futures_books = self.market.futures_tickers(futures_symbols)
+        funding = self.market.futures_funding_rates(futures_symbols)
+        return {
+            "quote": quote,
+            "spot_symbols": symbols,
+            "futures_symbols": futures_symbols,
+            "spot_books": books,
+            "futures_books": futures_books,
+            "funding": funding,
+        }
+
+    # ---- execution ----
+    def execute(self, sig: Signal) -> dict[str, Any]:
+        if self.paper:
+            return self._paper_execute(sig)
+        if self.client is None:
+            raise RuntimeError("No live client wired and paper=False")
+        return self._live_execute(sig)
+
+    def _paper_execute(self, sig: Signal) -> dict[str, Any]:
+        cost = sig.entry_price * sig.quantity
+        if sig.side == "BUY":
+            self._paper_balance -= cost
+        else:
+            self._paper_balance += cost
+        self.log.event("ORDER_CONFIRMED", venue=sig.venue, strategy=sig.strategy,
+                       symbol=sig.symbol, side=sig.side, price=str(sig.entry_price),
+                       qty=str(sig.quantity), mode="paper")
+        return {"symbol": sig.symbol, "side": sig.side, "price": str(sig.entry_price),
+                "quantity": str(sig.quantity), "status": "FILLED", "mode": "paper"}
+
+    def _live_execute(self, sig: Signal) -> dict[str, Any]:
+        cid = f"bos-{int(time.time()*1000)}-{sig.strategy[:6]}"
+        if sig.venue == "spot":
+            if sig.reduce_only:
+                resp = self.client.spot_place_market(sig.symbol, sig.side, str(sig.quantity))
+            else:
+                resp = self.client.spot_place_limit_maker(
+                    sig.symbol, sig.side, str(sig.entry_price), str(sig.quantity), cid)
+        else:
+            if sig.reduce_only:
+                resp = self.client.futures_place_market(sig.symbol, sig.side, str(sig.quantity), True)
+            else:
+                resp = self.client.futures_place_limit(
+                    sig.symbol, sig.side, str(sig.entry_price), str(sig.quantity), False, cid)
+        self.log.event("ORDER_CONFIRMED", venue=sig.venue, strategy=sig.strategy,
+                       symbol=sig.symbol, side=sig.side, price=str(sig.entry_price),
+                       qty=str(sig.quantity), order_id=str(resp.get("orderId", "")), mode="live")
+        return resp
+
+    # ---- main loop ----
+    def run_once(self) -> dict[str, Any]:
+        universe = self.build_universe()
+        signals: list[Signal] = []
+        for strat in self.strategies:
+            try:
+                signals.extend(strat.scan(universe))
+                signals.extend(strat.manage(universe))
+            except Exception as e:  # noqa: BLE001
+                self.log.event("STRATEGY_ERROR", strategy=strat.name, error=str(e))
+        executed = []
+        for sig in signals:
+            if not self.risk.can_open():
+                self.log.event("RISK_CAP", symbol=sig.symbol, venue=sig.venue)
+                continue
+            if self.risk.has(sig.symbol, sig.venue):
+                continue
+            resp = self.execute(sig)
+            executed.append(resp)
+            self.risk.register(OpenTrade(
+                venue=sig.venue, symbol=sig.symbol, side=sig.side,
+                entry_price=sig.entry_price, quantity=sig.quantity,
+                strategy=sig.strategy, order_id=str(resp.get("orderId", "")),
+            ))
+        self.log.snapshot(venue="all", mode="paper" if self.paper else "live",
+                         open_trades=self.risk.open_count(), executed=len(executed))
+        return {"universe": universe, "signals": len(signals), "executed": executed}
