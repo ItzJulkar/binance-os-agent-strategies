@@ -120,18 +120,24 @@ def test_regime_classify_crash():
     log.close()
 
 
-def test_grid_emits_ladder():
-    # ±1.2% alternating closes with no extra intrabar range => ATR% ~2.4%,
-    # inside the range-bound band [1.5%, 4.5%] the grid trades.
+def test_grid_buys_the_dip_on_range_bound_symbol():
+    # range-bound ±1.2% symbol, and the live book is in the dip (below the
+    # lower half of the range) -> exactly one MARKET BUY signal.
     prices = []
     base = Decimal("100")
     for i in range(100):
-        prices.append(base * (Decimal("1.012") if i % 2 else Decimal("0.988")))
+        prices.append(base * (Decimal("1.012") if i % 2 == 0 else Decimal("0.988")))
     candles = _mk(prices, [Decimal("10")] * 100, amp_pct=Decimal("0.0"))
     m = FakeMarket(spot=candles)
-    s, log = _mk_strategy(GridStrategy, m, _universe())
-    sigs = s.scan(_universe())
+    u = _universe()
+    # put the live book deep in the dip zone (ask ~97, well below mid*0.988)
+    u["spot_books"]["TESTUSDT"] = type("B", (), {"bid": Decimal("96.9"), "ask": Decimal("97.0")})()
+    s, log = _mk_strategy(GridStrategy, m, u)
+    sigs = s.scan(u)
     log.close()
-    assert len(sigs) >= 2, f"grid should emit a ladder of buys, got {len(sigs)}"
-    for sg in sigs:
-        assert sg.venue == "spot" and sg.side == "BUY"
+    assert len(sigs) == 1, f"expected 1 market buy, got {len(sigs)}"
+    sg = sigs[0]
+    assert sg.venue == "spot" and sg.side == "BUY"
+    # placeable at market: qty multiple of step, >= minQty, notional >= min
+    q = sg.quantity
+    assert (q / F.step_size) % 1 == 0 and q >= F.min_qty and q * sg.entry_price >= F.min_notional

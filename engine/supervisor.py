@@ -74,19 +74,14 @@ class Supervisor:
                 "quantity": str(sig.quantity), "status": "FILLED", "mode": "paper"}
 
     def _live_execute(self, sig: Signal) -> dict[str, Any]:
+        """Execute as a MARKET order so it always fills immediately. No resting
+        (LIMIT_MAKER/GTX) orders anywhere — the AI trades and the trade completes."""
         cid = f"bos-{int(time.time()*1000)}-{sig.strategy[:6]}"
         if sig.venue == "spot":
-            if sig.reduce_only:
-                resp = self.client.spot_place_market(sig.symbol, sig.side, str(sig.quantity))
-            else:
-                resp = self.client.spot_place_limit_maker(
-                    sig.symbol, sig.side, str(sig.entry_price), str(sig.quantity), cid)
+            resp = self.client.spot_place_market(sig.symbol, sig.side, str(sig.quantity))
         else:
-            if sig.reduce_only:
-                resp = self.client.futures_place_market(sig.symbol, sig.side, str(sig.quantity), True)
-            else:
-                resp = self.client.futures_place_limit(
-                    sig.symbol, sig.side, str(sig.entry_price), str(sig.quantity), False, cid)
+            resp = self.client.futures_place_market(sig.symbol, sig.side, str(sig.quantity),
+                                                    reduce_only=sig.reduce_only)
         self.log.event("ORDER_CONFIRMED", venue=sig.venue, strategy=sig.strategy,
                        symbol=sig.symbol, side=sig.side, price=str(sig.entry_price),
                        qty=str(sig.quantity), order_id=str(resp.get("orderId", "")), mode="live")

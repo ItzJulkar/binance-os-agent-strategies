@@ -1,9 +1,8 @@
 """Global risk gate shared by all strategies.
 
-An "open trade" is a distinct (venue, symbol) position. A grid ladder on one
-symbol is a single open trade (all its resting levels place together), so the
-max-open-trades cap bounds the number of symbols held, not the number of
-resting orders within a grid.
+An "open trade" is a distinct (venue, symbol) position. A grid on one symbol is
+a single open trade, so the max-open-trades cap bounds the number of symbols
+held, not the number of orders. All execution is MARKET (no resting orders).
 """
 from __future__ import annotations
 

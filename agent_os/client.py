@@ -34,13 +34,6 @@ class AgentOSClient:
         args = {"symbol": symbol} if symbol else {}
         return _parse(self.call_mcp("spot.getOpenOrders", args))
 
-    def spot_place_limit_maker(self, symbol: str, side: str, price: str, quantity: str,
-                               client_order_id: str) -> dict[str, Any]:
-        return _parse(self.call_mcp("spot.newOrder", {
-            "symbol": symbol, "side": side, "type": "LIMIT_MAKER",
-            "quantity": quantity, "price": price, "newClientOrderId": client_order_id,
-        }))
-
     def spot_place_market(self, symbol: str, side: str, quantity: str) -> dict[str, Any]:
         return _parse(self.call_mcp("spot.newOrder", {
             "symbol": symbol, "side": side, "type": "MARKET", "quantity": quantity,
@@ -64,14 +57,6 @@ class AgentOSClient:
     def futures_set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
         return _parse(self.call_mcp("futures_usds.changeInitialLeverage",
                                     {"symbol": symbol, "leverage": leverage}))
-
-    def futures_place_limit(self, symbol: str, side: str, price: str, quantity: str,
-                            reduce_only: bool, client_order_id: str) -> dict[str, Any]:
-        return _parse(self.call_mcp("futures_usds.newOrder", {
-            "symbol": symbol, "side": side, "type": "LIMIT", "timeInForce": "GTX",
-            "quantity": quantity, "price": price, "reduceOnly": reduce_only,
-            "newClientOrderId": client_order_id,
-        }))
 
     def futures_place_market(self, symbol: str, side: str, quantity: str,
                              reduce_only: bool = False) -> dict[str, Any]:

@@ -1,9 +1,9 @@
 """Exchange-filter-aware position sizing and order building.
 
-Every order is snapped to the pair's REAL tickSize / stepSize and rejected if
+Every order's quantity is snapped to the pair's REAL stepSize and rejected if
 it falls below minQty or minNotional — so nothing generated here can be
-rejected by Binance for LOT_SIZE / PRICE_FILTER / MIN_NOTIONAL, which is the
-most common bug in exchange bots (post-only orders rejected for precision).
+rejected by Binance for LOT_SIZE / MIN_NOTIONAL, which is the most common bug
+in exchange bots (orders rejected for precision).
 
 All rounding is done with Decimal to avoid float drift.
 """

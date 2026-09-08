@@ -1,11 +1,12 @@
-"""GRID strategy — range-bound mean-reversion ladder.
+"""GRID strategy — range mean-reversion, MARKET execution.
 
-Builds a geometric-spacing ladder of resting post-only orders around the
-current price of range-bound symbols. Buys sit below price, sells above. Each
-buy->sell cycle captures the grid spacing. Guards: range-breach stop, min
-spacing >= fee gate, tick/lot precision via real exchange filters.
+The grid trades a RANGE defined by the recent 20-bar high/low of a symbol. It
+takes a MARKET BUY when price is in the LOWER half of that range (buy the dip)
+and (via the prompt's lifecycle) MARKET-SELLS when price reaches the upper half
+again. Everything fills at market — no resting/ladder orders. One open trade
+per symbol (max 5 symbols), enforced by the risk layer.
 
-Algorithm parameters live here (kept private — not spelled out in the README).
+Algorithm parameters live here (kept private).
 """
 from __future__ import annotations
 
@@ -13,37 +14,30 @@ from decimal import Decimal
 from typing import Any
 
 from agent_os.indicators import atr
-from agent_os.sizing import snap_price
 from engine.base import Strategy
 from engine.signal import Signal
 
 # --- algorithm parameters (private) ---
-SPACING_PCT = Decimal("0.012")            # geometric spacing per level
-RANGE_PCT = Decimal("0.07")               # +/-7% range around anchor price
-LEVELS_PER_SIDE = 6
 ATR_LOW, ATR_HIGH = Decimal("0.015"), Decimal("0.045")  # range-bound ATR band
-MIN_SPACING_GATE = Decimal("0.005")       # spacing must exceed fees meaningfully
+RANGE_LOOKBACK = 20                 # bars for the high/low range
+LOWER_HALF_BUFFER = Decimal("1.00") # buy when price <= buffer x range mid
 
 
 class GridStrategy(Strategy):
     name = "grid"
-    venue = "both"
-
-    def _levels(self, anchor: Decimal, step: Decimal) -> list[Decimal]:
-        below = [anchor * ((Decimal(1) - step) ** i) for i in range(1, LEVELS_PER_SIDE + 1)]
-        above = [anchor * ((Decimal(1) + step) ** i) for i in range(1, LEVELS_PER_SIDE + 1)]
-        return sorted(below), sorted(above)
+    venue = "spot"
 
     def scan(self, universe: dict[str, Any]) -> list[Signal]:
+        """One MARKET BUY per symbol trading in the lower half of its range."""
         signals: list[Signal] = []
         filters = universe.get("spot_filters", {})
         for sym in universe.get("spot_symbols", []):
             book = universe["spot_books"].get(sym)
             flt = filters.get(sym)
-            if not book or not flt or book.bid <= 0 or book.ask <= 0 or book.ask <= book.bid:
+            if not book or not flt or book.ask <= 0:
                 continue
             try:
-                candles = self.market.spot_klines(sym, "1h", 100)
+                candles = self.market.spot_klines(sym, "1h", 60)
             except Exception:
                 continue
             if len(candles) < 30:
@@ -53,19 +47,28 @@ class GridStrategy(Strategy):
             if cur_atr is None or not candles[-1].close:
                 continue
             atrp = cur_atr / candles[-1].close
-            # range-bound gate: not dead-flat, not trending-hot
+            # only a range-bound symbol (not dead-flat, not trending-hot)
             if not (ATR_LOW <= atrp <= ATR_HIGH):
                 continue
-            anchor = (book.bid + book.ask) / 2
-            buys_low, sells_high = self._levels(anchor, SPACING_PCT)
-            # BUY ladder below the ask, each a real, snapped ~$6 post-only order
-            for price in buys_low:
-                if price >= book.ask:
-                    continue
-                sig = self.spot_buy(sym, price)
-                if sig is not None:
-                    sig = Signal(strategy="grid", venue="spot", symbol=sym, side="BUY",
-                                 entry_price=sig.entry_price, quantity=sig.quantity,
-                                 stop_loss_pct=Decimal("0.03"))
+            # recent range high/low (PRIOR bars, so price can trade at the edges)
+            window = candles[-(RANGE_LOOKBACK + 1):-1]
+            if len(window) < RANGE_LOOKBACK:
+                continue
+            hi = max(c.high for c in window)
+            lo = min(c.low for c in window)
+            if hi <= lo:
+                continue
+            mid_range = (hi + lo) / 2
+            # buy the dip: price is at/below the lower half of the range
+            if book.ask <= mid_range * LOWER_HALF_BUFFER:
+                sig = self.spot_buy(sym, book.ask,
+                                    stop_loss_pct=Decimal("0.03"),
+                                    take_profit_pct=Decimal("0.04"))
+                if sig:
                     signals.append(sig)
         return signals
+
+    def manage(self, universe: dict[str, Any]) -> list[Signal]:
+        # Market-sell exits on recovery / TP / SL are driven by the AI lifecycle
+        # in the prompt; the risk layer tracks the open symbol.
+        return []
