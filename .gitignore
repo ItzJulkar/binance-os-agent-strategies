@@ -9,3 +9,4 @@ _md.json
 *.log
 .env
 research/
+tests/smoke_live.jsonl
